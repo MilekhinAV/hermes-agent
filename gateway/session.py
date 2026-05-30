@@ -181,6 +181,12 @@ class SessionSource:
     # namespacing and the per-turn config/credential scope.
     profile: Optional[str] = None
 
+    # Telegram Business/Secretary Mode reply routing.
+    telegram_business_connection_id: Optional[str] = None
+    telegram_business_can_reply: Optional[bool] = None
+    telegram_business_sender_id: Optional[str] = None
+    telegram_business_sender_name: Optional[str] = None
+
     # Discord auto-thread metadata.  Newly auto-created Discord threads start
     # with a fast placeholder title from the raw message, then the gateway can
     # rename them after the first agent turn using the generated session title.
@@ -211,7 +217,6 @@ class SessionSource:
             self.scope_id = self.guild_id
         elif self.scope_id is not None:
             self.guild_id = self.scope_id
-
     @property
     def description(self) -> str:
         """Human-readable description of the source."""
@@ -262,6 +267,14 @@ class SessionSource:
             d["message_id"] = self.message_id
         if self.profile:
             d["profile"] = self.profile
+        if self.telegram_business_connection_id:
+            d["telegram_business_connection_id"] = self.telegram_business_connection_id
+        if self.telegram_business_can_reply is not None:
+            d["telegram_business_can_reply"] = self.telegram_business_can_reply
+        if self.telegram_business_sender_id:
+            d["telegram_business_sender_id"] = self.telegram_business_sender_id
+        if self.telegram_business_sender_name:
+            d["telegram_business_sender_name"] = self.telegram_business_sender_name
         if self.auto_thread_created:
             d["auto_thread_created"] = True
         if self.auto_thread_initial_name:
@@ -287,6 +300,10 @@ class SessionSource:
             parent_chat_id=data.get("parent_chat_id"),
             message_id=data.get("message_id"),
             profile=data.get("profile"),
+            telegram_business_connection_id=data.get("telegram_business_connection_id"),
+            telegram_business_can_reply=data.get("telegram_business_can_reply"),
+            telegram_business_sender_id=data.get("telegram_business_sender_id"),
+            telegram_business_sender_name=data.get("telegram_business_sender_name"),
             auto_thread_created=bool(data.get("auto_thread_created", False)),
             auto_thread_initial_name=data.get("auto_thread_initial_name"),
         )
@@ -560,6 +577,18 @@ def build_session_context_prompt(
             "use the yb_send_dm tool (look up the recipient by name or pass "
             "their user_id). Your normal reply is delivered to the group you "
             "are responding in."
+        )
+
+    if getattr(context.source, "telegram_business_connection_id", None):
+        lines.append("")
+        lines.append(
+            "**Telegram Business / Chat Automation instructions:** You are Anton's autoresponder. "
+            "Reply briefly, in Russian, and neutrally. Do not say that you are Hermes Agent. "
+            "Do not promise meetings, money, purchases, or decisions. "
+            "If the question is important or requires Anton personally, say exactly: "
+            "'Антон увидит и ответит позже'. "
+            "Do not answer messages written by Anton himself; those are ignored by the gateway, "
+            "but if one appears in context, do not reply to it."
         )
 
     # Connected platforms
