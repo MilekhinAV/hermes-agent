@@ -165,6 +165,7 @@ try:
         MessageHandler as TelegramMessageHandler,
         BusinessConnectionHandler,
         BusinessMessagesDeletedHandler,
+        TypeHandler,
         ContextTypes,
         filters,
     )
@@ -184,6 +185,7 @@ except ImportError:
     CallbackQueryHandler = Any
     BusinessConnectionHandler = Any
     BusinessMessagesDeletedHandler = Any
+    TypeHandler = Any
     TelegramMessageHandler = Any
     HTTPXRequest = Any
     filters = None
@@ -257,7 +259,7 @@ def check_telegram_requirements() -> bool:
     global TELEGRAM_AVAILABLE, Update, Bot, Message, InlineKeyboardButton
     global InlineKeyboardMarkup, LinkPreviewOptions, Application
     global CommandHandler, CallbackQueryHandler, TelegramMessageHandler
-    global BusinessConnectionHandler, BusinessMessagesDeletedHandler
+    global BusinessConnectionHandler, BusinessMessagesDeletedHandler, TypeHandler
     global ContextTypes, filters, ParseMode, ChatType, HTTPXRequest
     if TELEGRAM_AVAILABLE:
         return True
@@ -279,6 +281,7 @@ def check_telegram_requirements() -> bool:
             MessageHandler as _MH,
             BusinessConnectionHandler as _BCH,
             BusinessMessagesDeletedHandler as _BMDH,
+            TypeHandler as _TH,
             ContextTypes as _CT, filters as _filters,
         )
         from telegram.constants import ParseMode as _PM, ChatType as _CtT
@@ -297,6 +300,7 @@ def check_telegram_requirements() -> bool:
     TelegramMessageHandler = _MH
     BusinessConnectionHandler = _BCH
     BusinessMessagesDeletedHandler = _BMDH
+    TypeHandler = _TH
     ContextTypes = _CT
     filters = _filters
     ParseMode = _PM
@@ -2054,7 +2058,7 @@ class TelegramAdapter(BasePlatformAdapter):
             # recovery instead of blocking connect() indefinitely.
             await asyncio.wait_for(
                 self._app.updater.start_polling(
-                    allowed_updates=Update.ALL_TYPES,
+                    allowed_updates=self._allowed_updates_with_guest_messages(),
                     drop_pending_updates=drop_pending_updates,
                     error_callback=error_callback,
                 ),
@@ -2164,7 +2168,7 @@ class TelegramAdapter(BasePlatformAdapter):
             try:
                 await asyncio.wait_for(
                     app.updater.start_polling(
-                        allowed_updates=Update.ALL_TYPES,
+                        allowed_updates=self._allowed_updates_with_guest_messages(),
                         drop_pending_updates=False,
                         error_callback=self._polling_error_callback_ref,
                     ),
@@ -2572,7 +2576,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 try:
                     await asyncio.wait_for(
                         app.updater.start_polling(
-                            allowed_updates=Update.ALL_TYPES,
+                            allowed_updates=self._allowed_updates_with_guest_messages(),
                             drop_pending_updates=False,
                             error_callback=self._polling_error_callback_ref,
                         ),
@@ -3048,6 +3052,18 @@ class TelegramAdapter(BasePlatformAdapter):
             if self._post_connect_task is asyncio.current_task():
                 self._post_connect_task = None
 
+    @staticmethod
+    def _allowed_updates_with_guest_messages() -> List[Any]:
+        """Return Telegram allowed_updates including raw Bot API 10 guest_message.
+
+        python-telegram-bot may lag Bot API additions, so Update.ALL_TYPES can
+        omit the string. Telegram accepts unknown update type strings here.
+        """
+        allowed = list(getattr(Update, "ALL_TYPES", []) or [])
+        if "guest_message" not in {str(item) for item in allowed}:
+            allowed.append("guest_message")
+        return allowed
+
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         """Connect to Telegram via polling or webhook.
 
@@ -3248,6 +3264,13 @@ class TelegramAdapter(BasePlatformAdapter):
                 self._app.add_handler(BusinessMessagesDeletedHandler(self._handle_business_messages_deleted))
             except Exception as exc:
                 logger.warning("[%s] Telegram business handlers not available: %s", self.name, exc)
+            try:
+                # Raw Bot API 10 guest_message updates are not normal Message
+                # updates in PTB 22.x. Run in an earlier handler group so normal
+                # message handlers still process ordinary updates.
+                self._app.add_handler(TypeHandler(Update, self._handle_guest_message), group=-1)
+            except Exception as exc:
+                logger.warning("[%s] Telegram guest message handler not available: %s", self.name, exc)
             self._app.add_handler(TelegramMessageHandler(
                 filters.TEXT & ~filters.COMMAND,
                 self._handle_text_message
@@ -3359,7 +3382,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     url_path=webhook_path,
                     webhook_url=webhook_url,
                     secret_token=webhook_secret,
-                    allowed_updates=Update.ALL_TYPES,
+                    allowed_updates=self._allowed_updates_with_guest_messages(),
                     # Webhooks are push-based — Telegram does not hold a
                     # server-side getUpdates queue, so this flag is a no-op
                     # in practice. Mirror the polling path's reconnect
@@ -3678,6 +3701,29 @@ class TelegramAdapter(BasePlatformAdapter):
                     )
                     for chunk in chunks
                 ]
+
+            guest_query_id = str((metadata or {}).get("telegram_guest_query_id") or "")
+            if guest_query_id:
+                message_text = _strip_mdv2(chunks[0]) if chunks else content.strip()
+                result_payload = {
+                    "type": "article",
+                    "id": "hermes-response",
+                    "title": "Hermes response",
+                    "input_message_content": {
+                        "message_text": message_text,
+                    },
+                }
+                response = await self._bot._post(
+                    "answerGuestQuery",
+                    data={
+                        "guest_query_id": guest_query_id,
+                        "result": json.dumps(result_payload, ensure_ascii=False),
+                    },
+                )
+                inline_message_id = None
+                if isinstance(response, dict):
+                    inline_message_id = response.get("inline_message_id")
+                return SendResult(success=True, message_id=inline_message_id)
             
             message_ids = []
             thread_id = self._metadata_thread_id(metadata)
@@ -7549,6 +7595,53 @@ class TelegramAdapter(BasePlatformAdapter):
             return True
         return self._message_matches_mention_patterns(message)
 
+    async def _handle_guest_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle raw Bot API ``guest_message`` updates for Telegram Guest Mode."""
+        raw_guest = getattr(update, "guest_message", None)
+        if raw_guest is None:
+            raw_guest = (getattr(update, "api_kwargs", None) or {}).get("guest_message")
+        if not raw_guest:
+            return
+        if not self._telegram_guest_mode():
+            logger.info("[%s] Ignoring Telegram guest_message because guest_mode is disabled", self.name)
+            return
+
+        try:
+            msg = raw_guest if hasattr(raw_guest, "chat") else Message.de_json(raw_guest, self._bot)
+        except Exception as exc:
+            logger.warning("[%s] Failed to parse Telegram guest_message: %s", self.name, exc, exc_info=True)
+            return
+        if not msg:
+            return
+
+        raw_api = raw_guest if isinstance(raw_guest, dict) else {}
+        guest_query_id = str(
+            (getattr(msg, "api_kwargs", None) or {}).get("guest_query_id")
+            or raw_api.get("guest_query_id")
+            or ""
+        )
+        if guest_query_id:
+            api_kwargs = dict(getattr(msg, "api_kwargs", None) or {})
+            api_kwargs["guest_query_id"] = guest_query_id
+            try:
+                setattr(msg, "api_kwargs", api_kwargs)
+            except Exception:
+                pass
+
+        if not self._should_process_message(msg):
+            return
+
+        event = self._build_message_event(msg, MessageType.TEXT, update_id=getattr(update, "update_id", None))
+        event.text = self._clean_bot_trigger_text(getattr(msg, "text", None) or getattr(msg, "caption", None) or "")
+        logger.info(
+            "[%s] Telegram guest message query=%s chat=%s sender=%s",
+            self.name,
+            guest_query_id or "unknown",
+            event.source.chat_id,
+            event.source.user_id,
+        )
+        self._enqueue_text_event(event)
+
     async def _ensure_forum_commands(self, message) -> None:
         """Lazy-register bot commands for forum supergroups.
 
@@ -8592,6 +8685,9 @@ class TelegramAdapter(BasePlatformAdapter):
                 source.user_id_alt,
                 source.chat_id,
             )
+        guest_query_id = str((getattr(message, "api_kwargs", None) or {}).get("guest_query_id") or "")
+        if guest_query_id:
+            source.telegram_guest_query_id = guest_query_id
         
         # Extract reply context if this message is a reply.
         # Prefer Telegram's native partial quote (message.quote, TextQuote)

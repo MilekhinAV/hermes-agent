@@ -186,6 +186,7 @@ class SessionSource:
     telegram_business_can_reply: Optional[bool] = None
     telegram_business_sender_id: Optional[str] = None
     telegram_business_sender_name: Optional[str] = None
+    telegram_guest_query_id: Optional[str] = None  # Telegram Guest Mode answerGuestQuery routing
 
     # Discord auto-thread metadata.  Newly auto-created Discord threads start
     # with a fast placeholder title from the raw message, then the gateway can
@@ -275,6 +276,8 @@ class SessionSource:
             d["telegram_business_sender_id"] = self.telegram_business_sender_id
         if self.telegram_business_sender_name:
             d["telegram_business_sender_name"] = self.telegram_business_sender_name
+        if self.telegram_guest_query_id:
+            d["telegram_guest_query_id"] = self.telegram_guest_query_id
         if self.auto_thread_created:
             d["auto_thread_created"] = True
         if self.auto_thread_initial_name:
@@ -304,6 +307,7 @@ class SessionSource:
             telegram_business_can_reply=data.get("telegram_business_can_reply"),
             telegram_business_sender_id=data.get("telegram_business_sender_id"),
             telegram_business_sender_name=data.get("telegram_business_sender_name"),
+            telegram_guest_query_id=data.get("telegram_guest_query_id"),
             auto_thread_created=bool(data.get("auto_thread_created", False)),
             auto_thread_initial_name=data.get("auto_thread_initial_name"),
         )

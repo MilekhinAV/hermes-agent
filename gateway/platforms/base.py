@@ -69,10 +69,13 @@ def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) 
     """
     thread_id = getattr(source, "thread_id", None)
     business_connection_id = getattr(source, "telegram_business_connection_id", None)
-    if thread_id is None and not business_connection_id:
+    guest_query_id = getattr(source, "telegram_guest_query_id", None)
+    if thread_id is None and not business_connection_id and not guest_query_id:
         return None
 
     metadata = {}
+    if guest_query_id:
+        metadata["telegram_guest_query_id"] = str(guest_query_id)
     if thread_id is not None:
         metadata["thread_id"] = thread_id
 

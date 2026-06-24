@@ -176,6 +176,8 @@ async def test_reconnect_success_resets_error_count():
         await adapter._handle_polling_network_error(Exception("Bad Gateway"))
 
     assert adapter._polling_network_error_count == 0
+    kwargs = mock_updater.start_polling.await_args.kwargs
+    assert "guest_message" in {str(item) for item in kwargs["allowed_updates"]}
 
     # Clean up the heartbeat-probe task scheduled after a successful reconnect.
     pending = [t for t in adapter._background_tasks if not t.done()]
