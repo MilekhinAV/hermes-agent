@@ -8566,9 +8566,13 @@ class TelegramAdapter(BasePlatformAdapter):
         # string-like, but mocks often provide plain strings).
         telegram_chat_type = str(getattr(chat, "type", "")).split(".")[-1].lower()
         chat_type = "dm"
-        if telegram_chat_type in {"group", "supergroup"}:
+        # Some tests (and fallback environments without PTB installed) may carry
+        # MagicMock-style ChatType values such as
+        # "<MagicMock name='mock.ChatType.SUPERGROUP' ...>".  Use substring
+        # checks after the exact fast path so those still normalize correctly.
+        if telegram_chat_type in {"group", "supergroup"} or "supergroup" in telegram_chat_type or "group" in telegram_chat_type:
             chat_type = "group"
-        elif telegram_chat_type == "channel":
+        elif telegram_chat_type == "channel" or "channel" in telegram_chat_type:
             chat_type = "channel"
 
         # Resolve routable thread id for DM topics and forum group topics via
