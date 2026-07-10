@@ -588,7 +588,7 @@ def test_base_gateway_metadata_preserves_telegram_business_connection_without_th
 
 
 def test_telegram_business_message_routes_auth_to_owner_and_keeps_sender_metadata():
-    from gateway.platforms import telegram as telegram_mod
+    import plugins.platforms.telegram.adapter as telegram_mod
 
     adapter = _make_adapter()
     adapter._business_connections = {

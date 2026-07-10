@@ -6976,9 +6976,15 @@ class TelegramAdapter(BasePlatformAdapter):
         chat_type = str(getattr(chat, "type", "")).split(".")[-1].lower() if chat else ""
         raw = getattr(message, "message_thread_id", None)
         is_topic_message = bool(getattr(message, "is_topic_message", False))
-        is_forum_group = chat_type in ("group", "supergroup") and getattr(chat, "is_forum", False) is True
+        # Test doubles and fallback environments may expose ChatType values as
+        # MagicMock-ish strings (for example
+        # "<MagicMock name='mock.ChatType.SUPERGROUP' ...>").  Keep this in
+        # sync with _build_message_event's chat-type normalization so routing
+        # and session keys do not diverge under mocks or delayed PTB imports.
+        is_groupish = chat_type in ("group", "supergroup") or "supergroup" in chat_type or "group" in chat_type
+        is_forum_group = is_groupish and getattr(chat, "is_forum", False) is True
         if raw is not None:
-            if is_forum_group or (chat_type in ("group", "supergroup") and is_topic_message):
+            if is_forum_group or (is_groupish and is_topic_message):
                 return str(raw)
             if chat_type == "private" and is_topic_message:
                 return str(raw)
