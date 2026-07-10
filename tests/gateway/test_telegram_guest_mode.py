@@ -13,8 +13,8 @@ import pytest
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import MessageType
-import gateway.platforms.telegram as telegram_platform
-from gateway.platforms.telegram import TelegramAdapter
+import plugins.platforms.telegram.adapter as telegram_platform
+from plugins.platforms.telegram.adapter import TelegramAdapter
 from gateway.session import SessionSource
 from gateway.platforms.base import _thread_metadata_for_source
 
