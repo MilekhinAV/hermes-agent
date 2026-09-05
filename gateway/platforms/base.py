@@ -132,7 +132,7 @@ def _float_env(name: str, default: float) -> float:
 
 
 def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) -> dict | None:
-    """Build platform-aware thread metadata for adapter sends.
+    """Build platform-aware thread/business metadata for adapter sends.
 
     Most platforms route threaded sends with a generic ``thread_id`` metadata
     value. Telegram private-chat topics created through Hermes' DM-topic helper
@@ -142,7 +142,14 @@ def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) 
     ``direct_messages_topic_id`` when the Bot API supports it.
     """
     thread_id = getattr(source, "thread_id", None)
+    business_connection_id = getattr(source, "telegram_business_connection_id", None)
+    guest_query_id = getattr(source, "telegram_guest_query_id", None)
     metadata = {"thread_id": thread_id} if thread_id is not None else {}
+    if business_connection_id:
+        metadata["telegram_business_connection_id"] = str(business_connection_id)
+        metadata["business_connection_id"] = str(business_connection_id)
+    if guest_query_id:
+        metadata["telegram_guest_query_id"] = str(guest_query_id)
     # Slack workspace identity is durable routing state, not ephemeral event
     # metadata. Carry it on every outbound path (including unthreaded sends)
     # so a multi-workspace Socket Mode gateway never falls back to its primary
@@ -153,7 +160,7 @@ def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) 
             metadata["slack_team_id"] = str(scope_id)
     if not metadata:
         return None
-    if _platform_name(getattr(source, "platform", None)) == "telegram" and getattr(source, "chat_type", None) == "dm":
+    if _platform_name(getattr(source, "platform", None)) == "telegram" and getattr(source, "chat_type", None) == "dm" and thread_id is not None:
         metadata["telegram_dm_topic_reply_fallback"] = True
         tid = str(thread_id)
         if tid and tid not in {"", "1"}:

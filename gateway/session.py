@@ -186,6 +186,13 @@ class SessionSource:
     # target is not served. Excluded from repr/equality and wire serialization.
     profile_route_rejected: bool = field(default=False, repr=False, compare=False)
 
+    # Telegram Business/Secretary Mode and Guest Mode reply routing.
+    telegram_business_connection_id: Optional[str] = None
+    telegram_business_can_reply: Optional[bool] = None
+    telegram_business_sender_id: Optional[str] = None
+    telegram_business_sender_name: Optional[str] = None
+    telegram_guest_query_id: Optional[str] = None
+
     # Discord auto-thread metadata.  Newly auto-created Discord threads start
     # with a fast placeholder title from the raw message, then the gateway can
     # rename them after the first agent turn using the generated session title.
@@ -228,7 +235,6 @@ class SessionSource:
             self.scope_id = self.guild_id
         elif self.scope_id is not None:
             self.guild_id = self.scope_id
-
     @property
     def description(self) -> str:
         """Human-readable description of the source."""
@@ -279,6 +285,16 @@ class SessionSource:
             d["message_id"] = self.message_id
         if self.profile:
             d["profile"] = self.profile
+        if self.telegram_business_connection_id:
+            d["telegram_business_connection_id"] = self.telegram_business_connection_id
+        if self.telegram_business_can_reply is not None:
+            d["telegram_business_can_reply"] = self.telegram_business_can_reply
+        if self.telegram_business_sender_id:
+            d["telegram_business_sender_id"] = self.telegram_business_sender_id
+        if self.telegram_business_sender_name:
+            d["telegram_business_sender_name"] = self.telegram_business_sender_name
+        if self.telegram_guest_query_id:
+            d["telegram_guest_query_id"] = self.telegram_guest_query_id
         if self.auto_thread_created:
             d["auto_thread_created"] = True
         if self.auto_thread_initial_name:
@@ -306,6 +322,11 @@ class SessionSource:
             parent_chat_id=data.get("parent_chat_id"),
             message_id=data.get("message_id"),
             profile=data.get("profile"),
+            telegram_business_connection_id=data.get("telegram_business_connection_id"),
+            telegram_business_can_reply=data.get("telegram_business_can_reply"),
+            telegram_business_sender_id=data.get("telegram_business_sender_id"),
+            telegram_business_sender_name=data.get("telegram_business_sender_name"),
+            telegram_guest_query_id=data.get("telegram_guest_query_id"),
             auto_thread_created=bool(data.get("auto_thread_created", False)),
             auto_thread_initial_name=data.get("auto_thread_initial_name"),
             prospective_thread_id=data.get("prospective_thread_id"),
@@ -593,6 +614,16 @@ def build_session_context_prompt(
             uid = _hash_sender_id(uid)
         lines.append(f"**User ID:** {_format_untrusted_prompt_value(uid)}")
 
+    if context.source.platform == Platform.TELEGRAM and context.source.telegram_business_sender_id:
+        sender_name = context.source.telegram_business_sender_name or context.source.user_name or "external participant"
+        lines.append("")
+        lines.append(
+            "**Telegram Business / Chat Automation:** This inbound message was "
+            f"sent by the external chat participant {_format_untrusted_prompt_value(sender_name)} "
+            "through the connected business account. Address the external participant, "
+            "not the business account owner; do not treat the owner as the message author."
+        )
+
     # Platform-specific behavioral notes
     if context.source.platform == Platform.SLACK:
         # Inject the Slack capability note only when the agent actually has
@@ -695,6 +726,21 @@ def build_session_context_prompt(
             "use the yb_send_dm tool (look up the recipient by name or pass "
             "their user_id). Your normal reply is delivered to the group you "
             "are responding in."
+        )
+
+    if getattr(context.source, "telegram_business_connection_id", None):
+        lines.append("")
+        lines.append(
+            "**Telegram Business / Chat Automation instructions:** You are Anton's careful intake autoresponder. "
+            "Reply briefly, in Russian, and neutrally. Do not say that you are Hermes Agent. "
+            "Do not write as Anton personally and do not call the external sender 'Антон Викторович'. "
+            "Do not give substantive technical, financial, legal, business, or decision-making answers on Anton's behalf; "
+            "instead acknowledge receipt and ask for the missing context or expected action when useful. "
+            "Do not promise meetings, money, purchases, access, deadlines, approvals, or decisions. "
+            "If the question is important or requires Anton personally, say exactly: "
+            "'Антон увидит и ответит позже'. "
+            "Do not answer messages written by Anton himself; those are ignored by the gateway, "
+            "but if one appears in context, do not reply to it."
         )
 
     # Connected platforms

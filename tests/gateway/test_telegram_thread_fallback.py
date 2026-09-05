@@ -101,6 +101,8 @@ _fake_telegram_ext.CommandHandler = object
 _fake_telegram_ext.CallbackQueryHandler = object
 _fake_telegram_ext.InlineQueryHandler = object
 _fake_telegram_ext.MessageHandler = object
+_fake_telegram_ext.BusinessConnectionHandler = object
+_fake_telegram_ext.BusinessMessagesDeletedHandler = object
 _fake_telegram_ext.TypeHandler = object
 _fake_telegram_ext.ContextTypes = SimpleNamespace(DEFAULT_TYPE=object)
 _fake_telegram_ext.filters = object
@@ -129,6 +131,7 @@ def _make_adapter():
     adapter._connected = True
     adapter._dm_topics = {}
     adapter._dm_topics_config = []
+    adapter._business_connections = {}
     adapter._reply_to_mode = "first"
     adapter._fallback_ips = []
     adapter._polling_conflict_count = 0
@@ -725,3 +728,94 @@ async def test_thread_fallback_only_fires_once():
     # The key point: the message was delivered despite the invalid thread
 
 
+
+
+def test_base_gateway_metadata_preserves_telegram_business_connection_without_thread():
+    """Business messages need routing metadata even when they are not threaded."""
+    source = SimpleNamespace(
+        platform=Platform.TELEGRAM,
+        chat_type="dm",
+        thread_id=None,
+        telegram_business_connection_id="bc-123",
+    )
+
+    metadata = _thread_metadata_for_source(source)
+
+    assert metadata == {
+        "telegram_business_connection_id": "bc-123",
+        "business_connection_id": "bc-123",
+    }
+
+
+def test_telegram_business_message_routes_auth_to_owner_and_keeps_sender_metadata():
+    adapter = _make_adapter()
+    adapter._business_connections = {
+        "bc-123": {
+            "owner_user_id": "176169891",
+            "owner_user_name": "Anton Milekhin",
+            "can_reply": True,
+        }
+    }
+    message = SimpleNamespace(
+        text="Hello",
+        caption=None,
+        chat=SimpleNamespace(id=777, type="private", title=None, full_name="Client User"),
+        from_user=SimpleNamespace(id=777, full_name="Client User", is_bot=False),
+        business_connection_id="bc-123",
+        message_thread_id=None,
+        is_topic_message=False,
+        reply_to_message=None,
+        message_id=42,
+        date=None,
+    )
+
+    event = adapter._build_message_event(message, msg_type=MessageType.TEXT)
+
+    assert event.source.user_id == "176169891"
+    assert event.source.user_name == "Client User"
+    assert event.source.user_id_alt == "777"
+    assert event.source.telegram_business_connection_id == "bc-123"
+    assert event.source.telegram_business_sender_id == "777"
+    assert event.source.telegram_business_sender_name == "Client User"
+
+
+def test_telegram_business_prefilter_authorizes_connected_owner_not_external_sender():
+    adapter = _make_adapter()
+    adapter._business_connections = {
+        "bc-123": {"owner_user_id": "176169891", "owner_user_name": "Anton Milekhin"}
+    }
+    seen = {}
+    def auth(user_id, **kwargs):
+        seen["user_id"] = user_id
+        seen.update(kwargs)
+        return user_id == "176169891"
+    adapter._is_callback_user_authorized = auth
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=777, type="private"),
+        from_user=SimpleNamespace(id=777, full_name="Client User"),
+        business_connection_id="bc-123",
+        message_thread_id=None,
+        is_topic_message=False,
+        sender_chat=None,
+    )
+
+    assert adapter._is_user_authorized_from_message(message) is True
+    assert seen["user_id"] == "176169891"
+
+
+def test_gateway_runner_metadata_preserves_telegram_guest_query_without_thread():
+    from gateway.run import GatewayRunner
+
+    runner = object.__new__(GatewayRunner)
+    source = SimpleNamespace(
+        platform=Platform.TELEGRAM,
+        chat_id="-100123",
+        chat_type="group",
+        thread_id=None,
+        message_id="42",
+        telegram_guest_query_id="guest-123",
+    )
+
+    metadata = runner._thread_metadata_for_source(source)
+
+    assert metadata == {"telegram_guest_query_id": "guest-123"}

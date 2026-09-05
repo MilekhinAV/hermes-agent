@@ -25710,6 +25710,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     metadata.setdefault("scope_id", str(team_id))
                 if user_id:
                     metadata.setdefault("user_id", str(user_id))
+        business_connection_id = getattr(source, "telegram_business_connection_id", None)
+        if business_connection_id:
+            metadata = dict(metadata or {})
+            metadata["telegram_business_connection_id"] = str(business_connection_id)
+            metadata["business_connection_id"] = str(business_connection_id)
+        guest_query_id = getattr(source, "telegram_guest_query_id", None)
+        if guest_query_id:
+            metadata = dict(metadata or {})
+            metadata["telegram_guest_query_id"] = str(guest_query_id)
         return metadata
 
     def _thread_metadata_for_target(

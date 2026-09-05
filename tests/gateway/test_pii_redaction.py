@@ -54,6 +54,27 @@ def _make_context(
     )
 
 
+def test_telegram_business_context_identifies_external_sender_not_owner():
+    source = SessionSource(
+        platform=Platform.TELEGRAM,
+        chat_id="7816582878",
+        chat_type="dm",
+        user_id="176169891",
+        user_name="Client User",
+        telegram_business_connection_id="bc-123",
+        telegram_business_sender_id="7816582878",
+        telegram_business_sender_name="Client User",
+    )
+    ctx = SessionContext(source=source, connected_platforms=[Platform.TELEGRAM], home_channels={})
+
+    prompt = build_session_context_prompt(ctx)
+
+    assert "**User:** \"Client User\"" in prompt
+    assert "Telegram Business / Chat Automation" in prompt
+    assert "Address the external participant" in prompt
+    assert "not the business account owner" in prompt
+
+
 class TestBuildSessionContextPromptRedaction:
     def test_no_redaction_by_default(self):
         ctx = _make_context(user_id="user-123")
