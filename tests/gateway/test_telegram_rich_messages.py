@@ -461,6 +461,35 @@ async def test_rich_table_uses_raw_plain_draft_before_persistent_rich_final():
 
 
 @pytest.mark.asyncio
+async def test_legacy_draft_preserves_business_connection_metadata():
+    adapter = _make_adapter()  # rich messages on, rich drafts off
+    metadata = {"telegram_business_connection_id": "bc-123"}
+
+    result = await adapter.send_draft(
+        "12345", draft_id=7, content=RICH_CONTENT, metadata=metadata,
+    )
+
+    assert result.success is True
+    kwargs = adapter._bot.send_message_draft.call_args.kwargs
+    assert kwargs["business_connection_id"] == "bc-123"
+
+
+@pytest.mark.asyncio
+async def test_rich_draft_preserves_business_connection_metadata():
+    adapter = _make_adapter(extra={"rich_drafts": True})
+    metadata = {"telegram_business_connection_id": "bc-123"}
+
+    result = await adapter.send_draft(
+        "12345", draft_id=7, content=RICH_CONTENT, metadata=metadata,
+    )
+
+    assert result.success is True
+    adapter._bot.do_api_request.assert_awaited_once()
+    payload = adapter._bot.do_api_request.call_args.kwargs["api_kwargs"]
+    assert payload["business_connection_id"] == "bc-123"
+
+
+@pytest.mark.asyncio
 async def test_dm_table_stream_persists_through_send_rich_message():
     """Exercise the reporter's transport: ephemeral DM draft, then rich final."""
     adapter = _make_adapter()  # rich messages on, rich drafts off

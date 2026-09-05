@@ -2546,6 +2546,7 @@ class TelegramAdapter(BasePlatformAdapter):
             "rich_message": self._rich_message_payload(content),
         }
         payload.update(self._thread_kwargs_for_draft(chat_id, metadata))
+        payload.update(self._business_kwargs_from_metadata(metadata))
         try:
             ok = await self._bot.do_api_request("sendRichMessageDraft", api_kwargs=payload)
             return bool(ok)
@@ -6442,6 +6443,7 @@ class TelegramAdapter(BasePlatformAdapter):
             if use_markdown:
                 kwargs["parse_mode"] = ParseMode.MARKDOWN_V2
             kwargs.update(draft_thread_kwargs)
+            kwargs.update(self._business_kwargs_from_metadata(metadata))
 
             try:
                 ok = await self._bot.send_message_draft(**kwargs)
