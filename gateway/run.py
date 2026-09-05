@@ -14064,6 +14064,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 metadata = {}
             metadata["telegram_business_connection_id"] = str(business_connection_id)
             metadata["business_connection_id"] = str(business_connection_id)
+        guest_query_id = getattr(source, "telegram_guest_query_id", None)
+        if guest_query_id:
+            if metadata is None:
+                metadata = {}
+            metadata["telegram_guest_query_id"] = str(guest_query_id)
         return metadata
 
     def _thread_metadata_for_target(

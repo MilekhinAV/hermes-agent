@@ -512,6 +512,16 @@ def build_session_context_prompt(
             uid = _hash_sender_id(uid)
         lines.append(f"**User ID:** {_format_untrusted_prompt_value(uid)}")
 
+    if context.source.platform == Platform.TELEGRAM and context.source.telegram_business_sender_id:
+        sender_name = context.source.telegram_business_sender_name or context.source.user_name or "external participant"
+        lines.append("")
+        lines.append(
+            "**Telegram Business / Chat Automation:** This inbound message was "
+            f"sent by the external chat participant {_format_untrusted_prompt_value(sender_name)} "
+            "through the connected business account. Address the external participant, "
+            "not the business account owner; do not treat the owner as the message author."
+        )
+
     # Platform-specific behavioral notes
     if context.source.platform == Platform.SLACK:
         lines.append("")
@@ -586,9 +596,12 @@ def build_session_context_prompt(
     if getattr(context.source, "telegram_business_connection_id", None):
         lines.append("")
         lines.append(
-            "**Telegram Business / Chat Automation instructions:** You are Anton's autoresponder. "
+            "**Telegram Business / Chat Automation instructions:** You are Anton's careful intake autoresponder. "
             "Reply briefly, in Russian, and neutrally. Do not say that you are Hermes Agent. "
-            "Do not promise meetings, money, purchases, or decisions. "
+            "Do not write as Anton personally and do not call the external sender 'Антон Викторович'. "
+            "Do not give substantive technical, financial, legal, business, or decision-making answers on Anton's behalf; "
+            "instead acknowledge receipt and ask for the missing context or expected action when useful. "
+            "Do not promise meetings, money, purchases, access, deadlines, approvals, or decisions. "
             "If the question is important or requires Anton personally, say exactly: "
             "'Антон увидит и ответит позже'. "
             "Do not answer messages written by Anton himself; those are ignored by the gateway, "

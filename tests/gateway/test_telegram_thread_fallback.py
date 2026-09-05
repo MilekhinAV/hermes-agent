@@ -587,6 +587,59 @@ def test_base_gateway_metadata_preserves_telegram_business_connection_without_th
     }
 
 
+def test_gateway_runner_metadata_preserves_telegram_guest_query_without_thread():
+    """Guest Mode replies must use answerGuestQuery even when the bot is absent/kicked."""
+    from gateway import run as gateway_run
+
+    runner = object.__new__(gateway_run.GatewayRunner)
+    source = SimpleNamespace(
+        platform=Platform.TELEGRAM,
+        chat_id="-4689801392",
+        chat_type="group",
+        thread_id=None,
+        message_id="42",
+        telegram_guest_query_id="guest-query-123",
+    )
+
+    metadata = runner._thread_metadata_for_source(source)
+
+    assert metadata == {"telegram_guest_query_id": "guest-query-123"}
+
+
+def test_telegram_business_prefilter_authorizes_connected_owner_not_external_sender(monkeypatch):
+    """Business messages should pass intake auth via owner even when sender is external."""
+    import plugins.platforms.telegram.adapter as telegram_mod
+
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "176169891")
+    adapter = _make_adapter()
+    adapter._business_connections = {
+        "bc-123": {
+            "owner_user_id": "176169891",
+            "owner_user_name": "Anton Milekhin",
+            "can_reply": True,
+        }
+    }
+    message = SimpleNamespace(
+        text="Здравствуйте",
+        caption=None,
+        chat=SimpleNamespace(
+            id=7816582878,
+            type=telegram_mod.ChatType.PRIVATE,
+            title=None,
+            full_name="External User",
+        ),
+        from_user=SimpleNamespace(id=7816582878, full_name="External User", is_bot=False),
+        business_connection_id="bc-123",
+        message_thread_id=None,
+        is_topic_message=False,
+        reply_to_message=None,
+        message_id=13,
+        date=None,
+    )
+
+    assert adapter._is_user_authorized_from_message(message) is True
+
+
 def test_telegram_business_message_routes_auth_to_owner_and_keeps_sender_metadata():
     import plugins.platforms.telegram.adapter as telegram_mod
 
@@ -618,8 +671,8 @@ def test_telegram_business_message_routes_auth_to_owner_and_keeps_sender_metadat
 
     event = adapter._build_message_event(message, msg_type=MessageType.TEXT)
 
-    assert event.source.user_id == "176169891"
-    assert event.source.user_name == "Anton Milekhin"
+    assert event.source.user_id == "176169891"  # auth principal: connected owner
+    assert event.source.user_name == "Client User"  # prompt identity: external sender
     assert event.source.user_id_alt == "777"
     assert event.source.telegram_business_connection_id == "bc-123"
     assert event.source.telegram_business_sender_id == "777"

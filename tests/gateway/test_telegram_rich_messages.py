@@ -127,6 +127,23 @@ async def test_rich_happy_path_sends_raw_markdown():
 
 
 @pytest.mark.asyncio
+async def test_rich_send_preserves_business_connection_metadata():
+    """Business auto-replies must keep business_connection_id on raw rich sends."""
+    adapter = _make_adapter()
+
+    result = await adapter.send(
+        "7816582878",
+        RICH_CONTENT,
+        metadata={"telegram_business_connection_id": "bc-123"},
+    )
+
+    assert result.success is True
+    api_kwargs = _rich_api_kwargs(adapter)
+    assert api_kwargs["business_connection_id"] == "bc-123"
+    adapter._bot.send_message.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_details_with_math_skips_rich_send_to_avoid_tdesktop_crash():
     adapter = _make_adapter()
 
@@ -697,6 +714,24 @@ async def test_rich_draft_default_uses_legacy_to_avoid_tdesktop_reflow_glitches(
 
 
 @pytest.mark.asyncio
+async def test_legacy_draft_preserves_business_connection_metadata():
+    """Business auto-reply legacy draft frames must keep business_connection_id."""
+    adapter = _make_adapter()
+
+    result = await adapter.send_draft(
+        "7816582878",
+        draft_id=7,
+        content=RICH_CONTENT,
+        metadata={"business_connection_id": "bc-123"},
+    )
+
+    assert result.success is True
+    adapter._bot.send_message_draft.assert_awaited_once()
+    kwargs = adapter._bot.send_message_draft.await_args.kwargs
+    assert kwargs["business_connection_id"] == "bc-123"
+
+
+@pytest.mark.asyncio
 async def test_rich_draft_opt_in_sends_raw_markdown():
     adapter = _make_adapter(extra={"rich_drafts": True})
     adapter._bot.do_api_request = AsyncMock(return_value=True)
@@ -712,6 +747,26 @@ async def test_rich_draft_opt_in_sends_raw_markdown():
     assert api_kwargs["rich_message"]["markdown"] == RICH_CONTENT
     # Legacy plain-text draft must not run when rich draft succeeds.
     adapter._bot.send_message_draft.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rich_draft_preserves_business_connection_metadata():
+    """Business auto-reply rich draft frames must keep business_connection_id."""
+    adapter = _make_adapter(extra={"rich_drafts": True})
+    adapter._bot.do_api_request = AsyncMock(return_value=True)
+
+    result = await adapter.send_draft(
+        "7816582878",
+        draft_id=7,
+        content=RICH_CONTENT,
+        metadata={"telegram_business_connection_id": "bc-123"},
+    )
+
+    assert result.success is True
+    call = adapter._bot.do_api_request.call_args
+    assert call.args[0] == "sendRichMessageDraft"
+    api_kwargs = call.kwargs["api_kwargs"]
+    assert api_kwargs["business_connection_id"] == "bc-123"
 
 
 @pytest.mark.asyncio
@@ -854,6 +909,24 @@ async def test_finalize_edit_uses_rich_for_table_content():
     # No fresh send / delete — the whole point of the in-place rich edit.
     adapter._bot.edit_message_text.assert_not_called()
     adapter._bot.delete_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_finalize_edit_rich_preserves_business_connection_metadata():
+    """Business auto-reply final rich edits must keep business_connection_id."""
+    adapter = _make_adapter()
+
+    result = await adapter.edit_message(
+        "7816582878",
+        "555",
+        RICH_CONTENT,
+        finalize=True,
+        metadata={"business_connection_id": "bc-123"},
+    )
+
+    assert result.success is True
+    api_kwargs = _rich_edit_kwargs(adapter)
+    assert api_kwargs["business_connection_id"] == "bc-123"
 
 
 @pytest.mark.asyncio

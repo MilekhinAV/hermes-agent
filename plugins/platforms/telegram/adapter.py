@@ -912,6 +912,24 @@ class TelegramAdapter(BasePlatformAdapter):
         allowlist still pass through so the normal pairing flow can run.
         """
         source = self._source_from_message_for_auth(message)
+        business_connection_id = str(getattr(message, "business_connection_id", "") or "")
+        if business_connection_id:
+            # Business/Chat Automation messages are authored by the external
+            # participant, but authorization is based on the connected profile
+            # owner.  Without this prefilter rewrite, a restricted gateway
+            # blocks legitimate managed-chat messages before _build_message_event
+            # can attach owner-routed metadata.
+            business_info = self._business_connections.get(business_connection_id, {})
+            owner_id = str(
+                business_info.get("owner_user_id")
+                or self._default_business_owner_id()
+                or ""
+            )
+            if owner_id:
+                source.user_id = owner_id
+                owner_name = business_info.get("owner_user_name")
+                if owner_name:
+                    source.user_name = str(owner_name)
         user_id = source.user_id
         # No identity at all → genuine group service message (pin, delete,
         # new_chat_members, etc.). Defer to the cold path. Channel posts
@@ -1682,6 +1700,7 @@ class TelegramAdapter(BasePlatformAdapter):
         # present _thread_kwargs_for_send pairs it with message_thread_id=None,
         # which must not be sent as a stray field on the raw endpoint.
         payload.update({k: v for k, v in thread_kwargs.items() if v is not None})
+        payload.update(self._business_kwargs_from_metadata(metadata))
         payload.update(self._notification_kwargs(metadata))
         if getattr(self, "_disable_link_previews", False):
             payload["link_preview_options"] = {"is_disabled": True}
@@ -1796,6 +1815,7 @@ class TelegramAdapter(BasePlatformAdapter):
             reply_to_mode=self._reply_to_mode,
         )
         payload.update({k: v for k, v in thread_kwargs.items() if v is not None})
+        payload.update(self._business_kwargs_from_metadata(metadata))
         if getattr(self, "_disable_link_previews", False):
             payload["link_preview_options"] = {"is_disabled": True}
         try:
@@ -1884,6 +1904,7 @@ class TelegramAdapter(BasePlatformAdapter):
         thread_id = self._metadata_thread_id(metadata)
         if thread_id is not None:
             payload["message_thread_id"] = int(thread_id)
+        payload.update(self._business_kwargs_from_metadata(metadata))
         try:
             ok = await self._bot.do_api_request("sendRichMessageDraft", api_kwargs=payload)
             return bool(ok)
@@ -4555,6 +4576,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 kwargs["parse_mode"] = ParseMode.MARKDOWN_V2
             if thread_id is not None:
                 kwargs["message_thread_id"] = thread_id
+            kwargs.update(self._business_kwargs_from_metadata(metadata))
 
             try:
                 ok = await self._bot.send_message_draft(**kwargs)
@@ -8664,8 +8686,8 @@ class TelegramAdapter(BasePlatformAdapter):
                 )
             ),
             user_name=(
-                business_owner_name
-                if is_business_message and business_owner_name
+                getattr(user, "full_name", None)
+                if is_business_message and user
                 else (
                     user.full_name
                     if user
